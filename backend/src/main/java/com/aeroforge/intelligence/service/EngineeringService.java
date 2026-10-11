@@ -156,24 +156,28 @@ public class EngineeringService {
             one("SELECT * FROM weld_records WHERE id = ? AND material_id = ?", r.weldRecordId(), r.materialId());
         jdbc.update("""
             INSERT IGNORE INTO ml_models(model_name,model_version,algorithm,accuracy_score,active,trained_at)
-            VALUES ('AeroForge Property Predictor','1.0.0','Physics-informed regression',0.91420,TRUE,CURRENT_TIMESTAMP)
+            VALUES ('AeroForge Property Predictor','2.0.0','Traceable rule-based screening model',NULL,TRUE,CURRENT_TIMESTAMP)
             """);
         Long modelId = jdbc.queryForObject("SELECT id FROM ml_models WHERE model_name=? AND model_version=?",
-            Long.class, "AeroForge Property Predictor", "1.0.0");
-        String alloy = String.valueOf(material.get("alloy_grade")).toUpperCase();
-        double base = alloy.contains("AL") || alloy.contains("2219") ? 455.0 :
-            alloy.contains("TI") ? 920.0 : 680.0;
+            Long.class, "AeroForge Property Predictor", "2.0.0");
+        String alloy = String.valueOf(material.get("alloy_grade"));
+        Map<String,Object> reference = one("SELECT nominal_tensile_mpa, nominal_yield_mpa, nominal_elongation_percent FROM material_reference_catalogue WHERE alloy_grade=?", alloy);
+        double base = number(reference.get("nominal_tensile_mpa"), 455.0);
+        double baseYield = number(reference.get("nominal_yield_mpa"), base * .78);
+        double baseElongation = number(reference.get("nominal_elongation_percent"), 10.0);
         double heat = number(weld.get("heat_input_kj_mm"), 0.60);
         double haz = r.hazWidthMm() == null ? 2.4 : r.hazWidthMm();
         double repairs = r.repairCount();
         double tensile = clamp(base - Math.abs(heat - .55) * 42 - repairs * 13 - Math.max(0, haz - 3) * 5, 100, 1200);
-        double yield = tensile * .78;
-        double elongation = clamp(18 - Math.abs(heat - .55) * 3.2 - repairs * 1.35 - Math.max(0, haz - 3) * .7, 2, 30);
+        double retained = tensile / base;
+        double yield = clamp(baseYield * retained, 80, 2000);
+        double elongation = clamp(baseElongation * retained - repairs * .45 - Math.max(0, haz - 3) * .2, 1, 50);
         double defect = clamp(.045 + Math.abs(heat - .55) * .24 + repairs * .11 + Math.max(0, haz - 3) * .035, .01, .98);
         String risk = defect >= .55 ? "HIGH" : defect >= .25 ? "MEDIUM" : "LOW";
-        double confidence = clamp(.94 - repairs * .025 - Math.abs(heat - .55) * .04, .65, .96);
-        String explanation = "Prediction considers alloy baseline, TIG heat input, HAZ width and " + repairs
-            + " successive repair(s). Engineering validation is required before flight use.";
+        double confidence = clamp(.82 - repairs * .035 - Math.abs(heat - .55) * .06, .55, .84);
+        String explanation = "Screening estimate starts from the source-linked " + alloy + " nominal baseline (" + base
+            + " MPa tensile), then applies explicit TIG heat-input, HAZ-width and " + repairs
+            + " repair penalty terms. Confidence represents rule coverage, not validated ML accuracy; laboratory validation is mandatory.";
         KeyHolder key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
