@@ -17,11 +17,15 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 public class SecurityConfig {
 
     private final com.aeroforge.intelligence.security.JwtAuthenticationFilter jwtFilter;
+
+    @Value("${aeroforge.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
 
     public SecurityConfig(com.aeroforge.intelligence.security.JwtAuthenticationFilter jwtFilter) {
         this.jwtFilter = jwtFilter;
@@ -57,7 +61,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        configuration.setAllowedOriginPatterns(List.of(frontendUrl, "http://localhost:5173"));
         configuration.setAllowedMethods(
             List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
         );
